@@ -18,8 +18,9 @@ Documentation: https://jepela.com/docs/index.html · Live demos: https://demo.je
 
 ## A key
 
-Write to [info@jepela.com](mailto:info@jepela.com?subject=Jepela%20API%20key) with a sentence about
-what you want to decide; you get a key and your starting credit.
+Create an account at [app.jepela.com](https://app.jepela.com/#register) and choose your region. Jepela approves new
+accounts; then you create your key in the console and add credit by card or by invoice. Questions:
+[info@jepela.com](mailto:info@jepela.com).
 
 ## One request
 
