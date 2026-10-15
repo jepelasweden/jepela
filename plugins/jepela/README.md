@@ -15,7 +15,7 @@ export JEPELA_MODEL=jepela-english                 # optional: the model decide 
 Then, in Claude Code:
 
 ```
-/plugin marketplace add ceyoualigator-debug/jepela
+/plugin marketplace add jepelasweden/jepela
 /plugin install jepela@jepela
 ```
 

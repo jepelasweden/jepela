@@ -35,12 +35,12 @@ curl -s https://api.jepela.com/v1/systemone \
 ## Python
 
 ```bash
-pip install "git+https://github.com/ceyoualigator-debug/jepela#subdirectory=sdk/python"
+pip install "git+https://github.com/jepelasweden/jepela#subdirectory=sdk/python"
 ```
 
 ## Claude Code
 
 ```
-/plugin marketplace add ceyoualigator-debug/jepela
+/plugin marketplace add jepelasweden/jepela
 /plugin install jepela@jepela
 ```
