@@ -17,7 +17,7 @@ that should take a subject's remembered facts into account. Do not use it to wri
 - Question types: `{"type":"choice","instructions":...,"criteria":{name: description}}` (1 to 255 options; up to 20 are read by the engine in one pass, more are matched by vectors by default, so give every option a short description);
   `{"type":"score","instructions":...,"criteria":[low, ..., high]}` (2 to 10 levels);
   `{"type":"noul","instructions":...}` (yes/no). At most 400 engine questions per request.
-- Answers: choice `{choice, probabilities, confidence}`, score `{score, probabilities, legend, confidence}`, noul `{noul, confidence}`; plus `warnings`, `reading` and a `decision_id`.
+- Answers: choice `{choice, probabilities, confidence}`, score `{score, probabilities, legend, confidence}`, noul `{noul, confidence}`, each with `answer_confidence` (the probability of the answer given); plus `warnings`, `reading` and a `decision_id`.
 - Python: `pip install -e sdk/python`; `from jepela import JepelaClient, Choice, Score, Noul`; `client.system_one(state, questions, subject=...)`,
   `client.remember(subject, text)`, `client.forget(subject, concept)`, `client.delete(subject)`, `client.rules_add(subject, when, text)`,
   `client.pin(subject, text)`, `client.exclude(subject, options, text, question=...)`, `client.aliases(subject, names)`.
@@ -28,7 +28,7 @@ that should take a subject's remembered facts into account. Do not use it to wri
 - One thing per question; combine answers in code with weights and thresholds you control.
 - Choice for unordered categories (add `other`), Score for a spectrum described as situations, Noul for a statement phrased for yes.
 - Send every question that might matter in one request; adding questions does not change the others.
-- Gate actions on confidence. Start from a guess, such as acting alone above about 0.9, confirming between 0.6 and 0.9 and handing lower ones to a person, then set the thresholds from `GET /v1/quality`, which gives per question the probability where 90% accuracy is reached.
+- Gate actions on `answer_confidence`: the probability of the answer given, on one scale for every type (a choice's or a score's `confidence` is one minus the normalised entropy, another scale). Start from a guess, such as acting alone above about 0.9, confirming between 0.6 and 0.9 and handing lower ones to a person, then set the thresholds from `GET /v1/quality`, which gives per question a probability threshold for 90% accuracy, on the scale of `answer_confidence`, and whether thresholds chosen that way reached 90% on labels they were not chosen on.
 - The engine reads up to about 475 tokens of state on the English model (measured with a short yes/no question; long questions, many options and memory lines leave less); `usage.state_truncated` says when it read less, and `windows: true` reads the rest, billed per window.
 - Keep the `decision_id`, send `POST /v1/feedback` when the right answer is known, and read `GET /v1/quality`.
 
@@ -39,10 +39,10 @@ that should take a subject's remembered facts into account. Do not use it to wri
 - Pin a fact that must count at every decision (`pin: true`, or `client.pin`); recall also searches the subject's names, its aliases (`POST /v1/memory/aliases`) and the question's words.
 - The engine does not compare numbers or times: put the number in `values` and add a rule with `when` (`POST /v1/memory/rules`, with `expires` or `ttl_seconds` when it should end), checked in code at every decision; or compute the fact with `derive`.
 - Keep memories short; replace lines rather than append. Use `memory.compare` and `memory.placebo` in development to see what the memory changed.
-- `forget` removes one concept and returns `verified_forgotten`; `delete` removes everything stored about a subject. Use them for data-protection requests; the billing ledger still keeps the subject id of each priced request.
+- `forget` removes one concept and returns `verified_forgotten`; write a person's name with a capital letter ("Per" then leaves "per month"), check `related` (lines kept that may be about the name: a part of it, or the name in lowercase) and `matched_unsure` (lines removed where the case did not show the name, or written with other accents: "José" for "Jose"), and pass `preview=True` to see what would go before anything is removed. `delete` removes everything stored about a subject. Use them for data-protection requests; the billing ledger still keeps the subject id of each priced request.
 
 ## Errors
 
-401 key, 402 no credit, 409 a limit (memory, rules, golden cases), 422 bad request (the message says why), 429 rate limit (`Retry-After`), 502 engine down (nothing charged). Both SDKs retry 429, 502 and 503.
+401 key, 402 no credit (forget and delete still work), 403 account suspended (reading and deleting still work), 409 a limit (memory, rules, golden cases), 422 bad request (the message says why), 429 rate limit (`Retry-After`), 502 engine down (nothing charged). Both SDKs retry 429, 502 and 503.
 
 The documentation index is `GET /llms.txt` on the gateway.

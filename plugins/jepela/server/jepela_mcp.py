@@ -47,6 +47,8 @@ TOOLS = [
          "model": {"type": "string", "description": "jepela (default), jepela-english, jepela-multilingual or jepela-typed-decisions."},
          "compare": {"type": "boolean", "description": "Also answer without the memory, to see what it changed."},
          "robust": {"type": "boolean", "description": "Ask each choice of up to 20 options in three option orders (two for a two-option choice) and average them; billed per order."},
+         "quality": {"type": "string", "enum": ["fast", "balanced", "best"],
+                     "description": "fast (the default): the engine alone. balanced and best: the answers it is least sure of are answered again by a larger, slower second tier; best sends more of them. They need the second tier: where it is not running, the request is refused with a 422 that says so."},
          "values": {"type": "object", "description": "Numbers and strings that derive expressions and memory rules may use."},
          "derive": {"type": "object", "description": "Facts computed in code, for example {\"over\": \"reading.t > 75\"}."}},
          "required": ["state", "questions"]},
@@ -59,12 +61,18 @@ TOOLS = [
                      "required": ["subject", "text"]},
      "annotations": {"title": "Remember", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": False, "openWorldHint": True}},
     {"name": "forget", "title": "Forget",
-     "description": "Remove every memory line and rule about a concept from a subject's memory, and check that recall no longer finds it.",
-     "inputSchema": {"type": "object", "properties": {"subject": SUBJECT, "concept": {"type": "string", "description": "What to forget, in a few words."}},
+     "description": "Remove every memory line and rule about a concept from a subject's memory, and check that recall no longer finds it. "
+                    "Write a name with a capital letter (\"Per\"): it then matches only words with a capital, its possessive and genitive "
+                    "(Ann's, Åsas) and the parts of a hyphenated name; a word written with other accents or none (\"José\" for "
+                    "\"Jose\") goes too and is listed to check; a word in lowercase matches in any case, also inside a hyphenated "
+                    "word (\"dairy\" in \"dairy-free\"). Lines that may be about the name (a part of it, \"Ann\" for \"Ann Lindqvist\", or "
+                    "the name in lowercase) are kept and listed. Set preview to see what would go first.",
+     "inputSchema": {"type": "object", "properties": {"subject": SUBJECT, "concept": {"type": "string", "description": "What to forget, in a few words."},
+                                                      "preview": {"type": "boolean", "description": "true: remove nothing, only say what would go."}},
                      "required": ["subject", "concept"]},
      "annotations": {"title": "Forget", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True}},
     {"name": "delete", "title": "Delete a subject's memory",
-     "description": "Delete everything Jepela remembers about a subject: every line and every rule. It cannot be undone.",
+     "description": "Delete everything Jepela remembers about a subject: every line and every rule, and the subject's requests in your batches. It cannot be undone.",
      "inputSchema": {"type": "object", "properties": {"subject": SUBJECT}, "required": ["subject"]},
      "annotations": {"title": "Delete a subject's memory", "readOnlyHint": False, "destructiveHint": True, "idempotentHint": True, "openWorldHint": True}},
     {"name": "memory", "title": "Read a subject's memory",
@@ -81,8 +89,9 @@ TOOLS = [
          "required": ["decision_id", "question", "correct"]},
      "annotations": {"title": "Feedback", "readOnlyHint": False, "destructiveHint": False, "idempotentHint": True, "openWorldHint": True}},
     {"name": "quality", "title": "Quality report",
-     "description": "Accuracy, calibration error, and the share of decisions that can be automated at a target accuracy, per "
-                    "question, from the feedback given so far.",
+     "description": "Accuracy, calibration error, and for a target accuracy a confidence threshold, with whether thresholds "
+                    "chosen that way reached it on labels they were not chosen on and the share of decisions above them, "
+                    "per question, from the feedback given so far.",
      "inputSchema": {"type": "object", "properties": {
          "question": {"type": "string", "description": "Only this question id."},
          "days": {"type": "number", "description": "Only labels from the last N days (default 30)."}}},
@@ -103,8 +112,9 @@ class Jepela:
 
     def call(self, method: str, path: str, body: dict | None = None) -> dict:
         if not self.key:
-            raise ApiError(None, "no API key: set JEPELA_API_KEY in the environment Claude starts this server from "
-                                 "(the gateway owner creates keys with: python3 decision_api_server.py keys add --tenant NAME --credit 1)")
+            raise ApiError(None, "no API key: set JEPELA_API_KEY in the environment Claude starts this server from. Get a key "
+                                 "at https://app.jepela.com/#register: create an account, and once it is approved make a key "
+                                 "in the console")
         data = json.dumps(body).encode() if body is not None else None
         req = urllib.request.Request(self.base_url + path, data=data, method=method, headers={
             "Authorization": f"Bearer {self.key}", "Content-Type": "application/json", "User-Agent": "jepela-mcp/0.1.0"})
@@ -126,6 +136,30 @@ class Jepela:
 # ------------------------------------------------------------------ tool results as text
 def pct(p) -> str:
     return f"{round(100 * float(p))}%"
+
+
+def describe_automation(best: dict) -> str:
+    """The quality line's part for the 90% target of automate_at: the threshold chosen on the labels, and what
+    thresholds chosen that way gave on labels they were not chosen on; the gateway's status says whether that reached
+    90%. Accuracy has one decimal, so 89.7% below the target never reads as 90%."""
+    if not best:
+        return ""
+    status, threshold = best.get("status"), best.get("threshold")
+    if status == "not enough labels":
+        return f", not enough labels for a 90% threshold yet ({best.get('needed')} needed)"
+    if status is None:                               # a gateway from before the held-out check
+        return f", {pct(best.get('share', 0))} of decisions reach 90% accuracy"
+    if status == "not reached":
+        return ", no threshold shows 90% accuracy on these labels"
+    if status == "not checked":
+        return f", 90% threshold {threshold} not checked on labels it was not chosen on: do not automate on it yet"
+    held = (f"chosen this way, {pct(best.get('share', 0))} of decisions were above it on labels it was not chosen on, "
+            f"{100 * float(best.get('accuracy') or 0):.1f}% right (at least {100 * float(best.get('accuracy_low') or 0):.1f}%)")
+    if status == "reached":
+        return f", 90% threshold {threshold}; {held}"
+    if status == "below target":
+        return f", 90% threshold {threshold} below 90% on labels it was not chosen on: {held}; do not automate at 90% yet"
+    return f", 90% threshold {threshold} ({status}); {held}"
 
 
 def describe_answer(qid: str, a: dict) -> str:
@@ -161,6 +195,13 @@ def describe_decision(out: dict) -> str:
                        or abs(float(a.get("noul", 0)) - float((out["answers"].get(q) or {}).get("noul", 0))) >= 0.1]
             lines.append("without the memory: " + "; ".join(describe_answer(q, a) for q, a in without.items())
                          + (f" (changed: {', '.join(changed)})" if changed else " (no change)"))
+    tiers = out.get("quality") or {}
+    if tiers.get("asked_again"):
+        lines.append(f"quality {tiers.get('level')}: answered again by the second tier: "
+                     + ", ".join(f"{q} ({(tiers.get('why') or {}).get(q)})" for q in tiers["asked_again"]))
+    if tiers.get("fallback"):
+        lines.append(f"the second tier gave no answer ({tiers['fallback'].get('reason')}); the engine's own answer stands for: "
+                     + ", ".join(tiers["fallback"].get("questions") or []))
     for w in out.get("warnings") or []:
         lines.append(f"warning {w.get('code')}: {w.get('message')}")
     usage = out.get("usage") or {}
@@ -184,7 +225,7 @@ def run_tool(jepela: Jepela, name: str, args: dict) -> tuple:
         body = {"state": args["state"], "questions": args["questions"]}
         if args.get("model") or jepela.model:
             body["model"] = args.get("model") or jepela.model
-        for k in ("subject", "robust", "values", "derive"):
+        for k in ("subject", "robust", "quality", "values", "derive"):
             if args.get(k) not in (None, ""):
                 body[k] = args[k]
         if args.get("compare") and args.get("subject"):
@@ -200,9 +241,26 @@ def run_tool(jepela: Jepela, name: str, args: dict) -> tuple:
         return text, out
     if name == "forget":
         need("subject", "concept")
-        out = jepela.call("POST", "/v1/memory/forget", {"subject": args["subject"], "concept": args["concept"]})
-        return (f"removed {out.get('lines_removed', 0)} line(s) and {out.get('rules_removed', 0)} rule(s) about {args['concept']!r}; "
-                f"recall checked: {'nothing left' if out.get('verified_forgotten') else 'something may remain'}"), out
+        # every argument goes to the gateway as given, so one forget cannot honour ("preview": "true", "dry_run": true) is a
+        # 422 there with nothing removed; before 2026-10-16 the tool dropped it and the forget was real
+        out = jepela.call("POST", "/v1/memory/forget", {**args, "subject": args["subject"], "concept": args["concept"]})
+
+        def listed(label: str, texts: list) -> str:            # at most 20 in the text; structuredContent has them all
+            more = f"\n{label}: {len(texts) - 20} more (in structuredContent)" if len(texts) > 20 else ""
+            return "".join(f"\n{label}: {t}" for t in texts[:20]) + more
+
+        if out.get("preview") is True:
+            text = (f"preview, nothing removed: forget would remove {out.get('lines_removed', 0)} line(s) and {out.get('rules_removed', 0)} "
+                    f"rule(s) about {args['concept']!r}")
+            text += listed("would go", (out.get("removed_lines") or []) + [r.get("text") for r in out.get("removed_rules") or []])
+        else:
+            text = (f"removed {out.get('lines_removed', 0)} line(s) and {out.get('rules_removed', 0)} rule(s) about {args['concept']!r}; "
+                    f"recall checked: {'nothing left' if out.get('verified_forgotten') else 'something may remain'}")
+        for key, label in (("matched_unsure", "removed where the case did not show the name or the accents differ, check it"),
+                           ("related", "kept, may be about the name")):
+            found = out.get(key) or {}
+            text += listed(label, (found.get("lines") or []) + [r.get("text") for r in found.get("rules") or []])
+        return text, out
     if name == "delete":
         need("subject")
         out = jepela.call("POST", "/v1/memory/delete", {"subject": args["subject"]})
@@ -232,9 +290,9 @@ def run_tool(jepela: Jepela, name: str, args: dict) -> tuple:
         def line(q):
             auto = q.get("automate_at") or {}
             best = auto.get("0.9") or auto.get(0.9) or {}
-            return (f"{q.get('question')} ({q.get('model')}): {q.get('labels')} labels, accuracy {pct(q.get('accuracy', 0))}, "
-                    f"calibration error {float(q.get('calibration_error', 0)):.3f}"
-                    + (f", {pct(best.get('share', 0))} of decisions reach 90% accuracy" if best else ""))
+            who = ", the second tier's answers" if q.get("tier") == 2 else ""
+            return (f"{q.get('question')} ({q.get('model')}{who}): {q.get('labels')} labels, accuracy {pct(q.get('accuracy', 0))}, "
+                    f"calibration error {float(q.get('calibration_error', 0)):.3f}" + describe_automation(best))
         return "\n".join(line(q) for q in rows), out
     raise KeyError(name)
 

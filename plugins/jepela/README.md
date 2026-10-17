@@ -19,6 +19,9 @@ Then, in Claude Code:
 /plugin install jepela@jepela
 ```
 
+That installs from the public client repository, github.com/jepelasweden/jepela. From a local checkout instead:
+`/plugin marketplace add /path/to/checkout`.
+
 Start Claude Code from the shell where the variables are set. Without a key the server still starts and
 every tool call says how to get one.
 

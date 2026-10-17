@@ -13,7 +13,10 @@ subject is involved, informed by what is known about that subject.
 
 - `decide`: `state` (text or JSON) and `questions`, a map of id to question. Optional `subject` to use its
   memory, `compare: true` to also see the answer without memory, `robust: true` to average a choice of up
-  to 20 options over three option orders (two for two options; billed per order), `derive` and `values` for facts computed in code.
+  to 20 options over three option orders (two for two options; billed per order), `quality` (`fast`, the default;
+  `balanced` or `best` send the answers the engine is least sure of to a larger, slower second tier, only where
+  one runs: otherwise the request is refused with a 422 that says so), `derive` and
+  `values` for facts computed in code.
 - `remember` / `memory` / `forget` / `delete`: write, read, remove one concept, or remove everything
   about a subject. A subject is any id: a customer, a user, a player, a device.
 - `feedback`: the right answer for one question of an earlier decision, by its `decision_id`.
@@ -35,7 +38,7 @@ subject is involved, informed by what is known about that subject.
 - One fact per line, saying what is true or what to do: "ACME holds an enterprise contract",
   "In the Coin Hall, the hero goes down the plain stair".
 - Do not write what to avoid. A line such as "Never walk along the gold coins" pulled a decision toward
-  the coins (83% to 94%, measured). `remember` returns a warning when a line does this.
+  the coins (83% to 94%, measured 2026-09-23). `remember` returns a warning when a line does this.
 - When an option must never be chosen, leave it out of the question (an application can also store an
   exclusion rule through the API, which removes it in code). A memory line makes allowed answers more or
   less likely; it cannot forbid one (on ten roulette states where 17 had just come up, a line saying which
@@ -48,6 +51,7 @@ subject is involved, informed by what is known about that subject.
 
 Gate actions on the probability and on what a mistake costs. Start from a guess, such as acting alone
 above about 0.9, asking for confirmation between 0.6 and 0.9 and handing lower ones to a person, then set
-the thresholds from `quality`, which gives per question the probability where 90% accuracy is reached.
+the thresholds from `quality`, which gives per question a probability threshold for 90% accuracy and whether
+thresholds chosen that way reached 90% on labels they were not chosen on.
 When the right answer becomes known, send `feedback`, and check `quality` before trusting a question with
 more automation.
